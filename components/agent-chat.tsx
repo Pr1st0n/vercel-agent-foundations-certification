@@ -3,8 +3,8 @@
 import { useChat } from "@ai-sdk/react";
 import { WorkflowChatTransport } from "@workflow/ai";
 import { lastAssistantMessageIsCompleteWithToolCalls } from "ai";
-import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Conversation,
   ConversationContent,
@@ -30,11 +30,17 @@ const SLUG_RE = /^[a-z0-9-]+$/;
 export function AgentChat() {
   const [input, setInput] = useState("");
   const router = useRouter();
+  const pathname = usePathname();
 
   const activeRunId = useMemo(() => {
     if (typeof window === "undefined") return undefined;
     return localStorage.getItem("active-workflow-run-id") ?? undefined;
   }, []);
+
+  // Set on the first user submit, so results replayed by `resume` after a
+  // reload never auto-navigate.
+  const isLiveTurnRef = useRef(false);
+  const handledSearchToolCallIds = useRef(new Set<string>());
 
   const { messages, error, sendMessage, addToolOutput } = useChat<ShoppingAgentUIMessage>({
     resume: Boolean(activeRunId),
@@ -76,7 +82,40 @@ export function AgentChat() {
     },
   });
 
+  // Auto-navigate when a searchProducts call resolves to exactly one product.
+  useEffect(() => {
+    for (const m of messages) {
+      for (const p of m.parts) {
+        if (p.type !== "tool-searchProducts" || p.state !== "output-available") {
+          continue;
+        }
+        if (handledSearchToolCallIds.current.has(p.toolCallId)) continue;
+        handledSearchToolCallIds.current.add(p.toolCallId);
+
+        if (!isLiveTurnRef.current) continue;
+
+        const output = p.output;
+        if (!output || output.count !== 1) continue;
+        const product = output.products[0];
+        if (!product || !SLUG_RE.test(product.slug)) continue;
+
+        const alreadyShown = m.parts.some(
+          (other) =>
+            other.type === "tool-showProduct" &&
+            other.input?.slug === product.slug,
+        );
+        if (alreadyShown) continue;
+
+        const targetPath = `/products/${product.slug}`;
+        if (pathname === targetPath) continue;
+
+        router.push(targetPath);
+      }
+    }
+  }, [messages, pathname, router]);
+
   const handleSubmit = (message: PromptInputMessage) => {
+    isLiveTurnRef.current = true;
     sendMessage({ text: input });
     setInput("");
   };
