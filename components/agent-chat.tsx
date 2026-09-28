@@ -2,6 +2,8 @@
 
 import { useChat } from "@ai-sdk/react";
 import { WorkflowChatTransport } from "@workflow/ai";
+import { lastAssistantMessageIsCompleteWithToolCalls } from "ai";
+import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import {
   Conversation,
@@ -22,15 +24,19 @@ import type { ShoppingAgentUIMessage } from "@/lib/agent";
 import { AgentProductCard } from "./agent-product-card";
 import { AgentProductList } from "./agent-product-list";
 
+// Guards against a model-supplied slug becoming an arbitrary URL.
+const SLUG_RE = /^[a-z0-9-]+$/;
+
 export function AgentChat() {
   const [input, setInput] = useState("");
+  const router = useRouter();
 
   const activeRunId = useMemo(() => {
     if (typeof window === "undefined") return undefined;
     return localStorage.getItem("active-workflow-run-id") ?? undefined;
   }, []);
 
-  const { messages, error, sendMessage } = useChat<ShoppingAgentUIMessage>({
+  const { messages, error, sendMessage, addToolOutput } = useChat<ShoppingAgentUIMessage>({
     resume: Boolean(activeRunId),
     transport: new WorkflowChatTransport({
       api: "/api/chat",
@@ -45,6 +51,29 @@ export function AgentChat() {
         return { ...rest, api: `/api/chat/${encodeURIComponent(runId)}/stream` };
       },
     }),
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
+    async onToolCall({ toolCall }) {
+      if (toolCall.dynamic) return;
+      if (toolCall.toolName === "showProduct") {
+        const { slug, name } = toolCall.input;
+        if (!SLUG_RE.test(slug)) {
+          addToolOutput({
+            tool: "showProduct",
+            toolCallId: toolCall.toolCallId,
+            state: "output-error",
+            errorText: `"${slug}" is not a valid product slug.`,
+          });
+          return;
+        }
+        router.push(`/products/${slug}`);
+        // No await - avoids potential deadlocks.
+        addToolOutput({
+          tool: "showProduct",
+          toolCallId: toolCall.toolCallId,
+          output: { slug, name, navigated: true },
+        });
+      }
+    },
   });
 
   const handleSubmit = (message: PromptInputMessage) => {
@@ -77,6 +106,41 @@ export function AgentChat() {
                   return (
                     <AgentProductCard key={`${m.id}-${i}`} invocation={p} />
                   );
+                case "tool-showProduct": {
+                  const name = p.input?.name ?? p.input?.slug;
+                  switch (p.state) {
+                    case "input-streaming":
+                    case "input-available":
+                      return (
+                        <div
+                          key={`${m.id}-${i}`}
+                          className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground"
+                        >
+                          Opening{name ? ` ${name}` : ""}…
+                        </div>
+                      );
+                    case "output-available":
+                      return (
+                        <div
+                          key={`${m.id}-${i}`}
+                          className="rounded-lg border border-border bg-card p-4 text-sm text-muted-foreground"
+                        >
+                          Opened {p.output.name}
+                        </div>
+                      );
+                    case "output-error":
+                      return (
+                        <div
+                          key={`${m.id}-${i}`}
+                          className="rounded-lg border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
+                        >
+                          {p.errorText}
+                        </div>
+                      );
+                    default:
+                      return null;
+                  }
+                }
                 default:
                   return null;
               }

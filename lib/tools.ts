@@ -102,6 +102,27 @@ export const getProductDetails = tool({
   },
 });
 
+export const showProduct = tool({
+  description: `Navigate the storefront to one specific product's page. Use this ONLY when the user explicitly asks to see, view, or be taken to a specific product (e.g. 'show me the black hoodie', 'take me to the desk mat', 'open the baseball cap'). You must already know the product's real slug from a previous searchProducts or getProductDetails result — never invent one; call searchProducts first if you don't have it. Do not use this for plain browsing or informational questions (e.g. 'do you have hats?', 'tell me about the mug') — use searchProducts or getProductDetails for those instead. This tool has no execute function; the client performs the navigation and reports back.`,
+  inputSchema: z.object({
+    slug: z
+      .string()
+      .describe(
+        `The product's slug, taken from a previous searchProducts or getProductDetails result.`,
+      ),
+    name: z
+      .string()
+      .describe(
+        `The product's display name, used to show a friendly confirmation message.`,
+      ),
+  }),
+  outputSchema: z.object({
+    slug: z.string(),
+    name: z.string(),
+    navigated: z.boolean(),
+  }),
+});
+
 export const getAllCategories = tool({
   description: `List every product category available in the Vercel swag store, along with the number of products in each. Use this when the user asks what categories exist, what kinds of products are sold, or wants to browse the store at a high level.`,
   inputSchema: z.object({}),
