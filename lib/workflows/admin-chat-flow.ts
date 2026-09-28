@@ -18,7 +18,7 @@ import { createOrGetSandbox, SANDBOX_NAME } from "@/lib/sandbox";
 
 export async function readMemories() {
   const sandbox = await createOrGetSandbox(SANDBOX_NAME);
-  const buffer = await sandbox.readFileToBuffer({ path: "memories.md" });
+  const buffer = await sandbox.readFileToBuffer({ path: "/vercel/sandbox/memories.md" });
   return buffer ? new TextDecoder().decode(buffer) : null;
 }
 
